@@ -5,7 +5,8 @@
 %% setup
 % Define mesh
 % We require n to be an integer power of 2
-n = 64; % thus delta x = delta y = h = 1/n. There will be (n-1) * (n-1) 
+n = 128; % thus delta x = delta y = h = 1/n. There will be (n-1) * (n-1) 
+fprintf("n = %d\n", n)
 % grid points in the interior of the domain, and (n+1) * (n+1) grid points
 % in the closure of the domain (i.e. include zeros on the boundary).
 [X,Y] = meshgrid((1 : (n-1)) / n,(1 : (n-1)) / n);
@@ -20,15 +21,18 @@ b = reshape(f(X,Y),[],1);
 A = discrete_Laplacian2D(n);
 
 % Thus the exact solution is
+tic;
 u_exact = A \ b;
+t_direct = toc;
+fprintf('Direct Solve Time:        %g Seconds\n',t_direct)
 
 %% Define parameters for solver 
 % Define smoothing_method in {Gauss-Seidel, Jacobi, Relaxation}
 smoothing_method = "Gauss-Seidel";
 omega = 1;
 max_iter = 50; % max iteration
-nu1 = 2; % pre-smoothing step
-nu2 = 2; % post-smoothing steps
+nu1 = 1; % pre-smoothing step
+nu2 = 1; % post-smoothing steps
 gamma = 2; % V-cycle: gamma = 1, W-cycle: gamma = 2
 tol = 1e-12;
 
@@ -41,22 +45,41 @@ error = zeros((n-1)^2, 1);
 u_init = zeros((n-1)^2, 1);
 u = u_init;
 error(1) = norm(u_init - u_exact, Inf);
+tic;
 while iter <= max_iter && norm(u - u_exact, Inf) > tol
     u = multigrid(@discrete_Laplacian2D, @restriction2D, b, n, gamma, u, nu1, nu2, smoothing_method, omega);
     error = reshape(u - u_exact, n-1, n-1);
     iter = iter + 1;
 end
+t_W = toc;
+fprintf('W-cycle Time:        %g Seconds\n',t_W);
+fprintf('W cycle done. \n');
 
-%% Enforce BC and plot solution
-% define meshgrid with boundary data point
-[X_BC,Y_BC] = meshgrid(0:1/n:1, 0:1/n:1);
-% plot solution from multigrid solver
-u = padarray(reshape(u, n-1, n-1), [1, 1], 0);
-figure("Name", "Multigrid Solution 2D")
-surf(X_BC, Y_BC, u);
-title("Multigrid Solution of Heat Equation");
-% plot exact solution 
-u_exact = padarray(reshape(u_exact, n-1, n-1), [1, 1], 0);
-figure("Name", "Exact Solution 2D")
-surf(X_BC, Y_BC, u_exact);
-title("Exact Solution of Heat Equation");
+%% solve & track error/convergence: V-cycle
+gamma = 1;
+u = u_init;
+error(1) = norm(u_init - u_exact, Inf);
+iter = 1;
+tic;
+while iter <= max_iter && norm(u - u_exact, Inf) > tol
+    u = multigrid(@discrete_Laplacian2D, @restriction2D, b, n, gamma, u, nu1, nu2, smoothing_method, omega);
+    error = reshape(u - u_exact, n-1, n-1);
+    iter = iter + 1;
+end
+t_V = toc;
+fprintf('V-cycle Time:        %g Seconds\n',t_V)
+fprintf('V cycle done. \n');
+
+%% Solve with Gauss-Seidel
+tic;
+[u_GS, ~, ~] = GaussSeidel_with_tol(A, b, u_init, max_iter, tol, u_exact);
+t_GS = toc;
+fprintf('GaussSeidel Time:        %g Seconds\n',t_GS);
+fprintf("Gauss Seidel Done. \n")
+
+%% Solve with Jacobi
+tic;
+[u_J, ~, ~] = GaussSeidel_with_tol(A, b, u_init, max_iter, tol, u_exact);
+t_J = toc;
+fprintf('Jacobi Time:        %g Seconds\n',t_J);
+fprintf("Jacobi Done. \n")
